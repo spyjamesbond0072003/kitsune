@@ -3,6 +3,7 @@ from smtplib import SMTPException
 
 from django.contrib import auth
 from django.contrib.auth.models import User
+from django.forms import ValidationError
 
 from statsd import statsd
 
@@ -20,7 +21,19 @@ def handle_login(request, only_active=True):
     if request.method == 'POST':
         form = AuthenticationForm(request=request, data=request.POST,
                                   only_active=only_active)
-        if form.is_valid():
+        if form.has_recaptcha:
+            r = form.fields['recaptcha']
+            try:
+                r.clean(form.data.get('recaptcha'))
+            except ValidationError:
+                failed_captcha = True
+            else:
+                failed_captcha = False
+            finally:
+                # Don't check this twice.
+                del form.fields['recaptcha']
+                form.failed_captcha = failed_captcha
+        if not failed_captcha and form.is_valid():
             auth.login(request, form.get_user())
             statsd.incr('user.login')
 
