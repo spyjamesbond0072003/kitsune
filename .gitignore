@@ -15,3 +15,5 @@ locale
 docs/_build
 highstock.src.js
 static
+kitsune-install.log
+.venv
