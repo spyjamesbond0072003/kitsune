@@ -142,7 +142,6 @@ _check_ret() {
 # Check for dependencies.
 _print "\nChecking for dependencies...\n"
 
-_require_installed yum
 _require_installed python
 _require_installed virtualenv
 _require_installed pip
@@ -208,9 +207,9 @@ _print "Attempting to create database, you may need to enter the password twice.
 DBCMD1="CREATE DATABASE ${DBNAME}; GRANT ALL ON ${DBNAME}.* TO ${DBUSER}@localhost IDENTIFIED BY '${DBPASS}';"
 DBCMD2="CREATE DATABASE test_${DBNAME}; GRANT ALL ON test_${DBNAME}.* TO ${DBUSER}@localhost;"
 mysql -u$DBADMIN -p -e "$DBCMD1"
-DBCREATED1 = $?
+DBCREATED1=$?
 mysql -u$DBADMIN -p -e "$DBCMD2"
-DBCREATED2 = $?
+DBCREATED2=$?
 
 if [ 0 -ne $DBCREATED1 ] && [0 -ne $DBCREATED2 ]; then
     _print "There was an issue creating the database. You should be able to create it with these commands:"
@@ -221,7 +220,8 @@ fi
 # Write settings_local.py.
 # Generate a secret.
 SECRET=`python $TARGET/scripts/gen-secret.py`
-_check_ret $?
+#TODO
+#_check_ret $?
 
 # Figure out cache settings.
 if [ 0 -eq $HAS_MC ]; then
@@ -278,10 +278,13 @@ if [ 0 -eq $HAS_REDIS ]; then
     USE_REDIS=$?
 fi
 
+#TODO
+
 # Get the localizations if all the infrastructure is there.
 _is_installed svn
 SVN=$?
 _is_installed msgfmt
+#TODO
 GETTEXT=1
 if [[ 0 -eq $SVN ]] && [[ 0 -eq $GETTEXT ]]; then
     _print "\nLocalizations available!"
