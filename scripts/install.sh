@@ -102,7 +102,17 @@ _is_installed() {
 }
 
 _which() {
-    which --skip-alias "$1" 2>/dev/null
+    local _out=$2
+    local _where=`which --skip-alias "$1" 2>/dev/null`
+    local _ret=$?
+    if [ 0 -eq $_ret ]; then
+        if [ $_out ]; then
+            eval $_out="'$_where'"
+        else
+            _print $_where
+        fi
+    fi
+    return $_ret
 }
 
 _require_installed() {
@@ -184,7 +194,7 @@ _ok
 
 # Activate the virtualenv.
 _printn "Activating virtual environment... "
-. $VENV/bin/activate &>> $LOGFILE
+source $VENV/bin/activate &>> $LOGFILE
 _check_ret $?
 _ok
 
@@ -211,7 +221,7 @@ DBCREATED1=$?
 mysql -u$DBADMIN -p -e "$DBCMD2"
 DBCREATED2=$?
 
-if [ 0 -ne $DBCREATED1 ] && [0 -ne $DBCREATED2 ]; then
+if [ 0 -ne $DBCREATED1 ] || [0 -ne $DBCREATED2 ]; then
     _print "There was an issue creating the database. You should be able to create it with these commands:"
     _print "${DBCMD1}"
     _print "${DBCMD2}"
@@ -227,7 +237,7 @@ SECRET=`python $TARGET/scripts/gen-secret.py`
 if [ 0 -eq $HAS_MC ]; then
     _prompt "What is your memcached server port?" MC_PORT 11211
     MC_BACKEND='caching.backends.memcached.CacheClass'
-    MC_LOCATION='localhost:${MC_PORT}'
+    MC_LOCATION="localhost:${MC_PORT}"
     _prompt "Select a cache key prefix (to avoid collisions):" MC_PREFIX "kitsune:"
 else
     MC_BACKEND='django.core.cache.backends.locmem.LocMemCache'
@@ -237,9 +247,9 @@ fi
 
 _yn "Do you want to send email to yourself (and possibly others)?" "N"
 if [ 0 -eq $? ]; then
-    EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend'
-else
     EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend'
+else
+    EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend'
 fi
 
 cat > settings_local.py <<ENDSETTINGS
@@ -278,14 +288,54 @@ if [ 0 -eq $HAS_REDIS ]; then
     USE_REDIS=$?
 fi
 
-#TODO
+if [ 0 -eq $USE_REDIS ]; then
+    _yn "Do you want to use the default Redis settings?" "Y"
+    REDIS_DEFAULT=$?
+    if [ 0 -eq $REDIS_DEFAULT ]; then
+        REDIS_HOST='localhost'
+        REDIS_VOLATILE_PORT=6379
+        REDIS_PERSISTENT_PORT=6381
+        REDIS_TEST_PORT=6383
+        cat >> settings_local.py <<ENDREDIS
+REDIS_BACKENDS = {
+    'default': 'redis://${REDIS_HOST}:${REDIS_VOLATILE_PORT}?db=0',
+    'karma': 'redis://${REDIS_HOST}:${REDIS_PERSISTENT_PORT}?db=0',
+    'helpfulvotes': 'redis://${REDIS_HOST}:${REDIS_VOLATILE_PORT}?db=1',
+}
+
+REDIS_TEST_BACKENDS = {
+    'default': 'redis://${REDIS_HOST}:${REDIS_TEST_PORT}?db=0',
+    'karma': 'redis://${REDIS_HOST}:${REDIS_TEST_PORT}?db=1',
+    'helpfulvotes': 'redis://${REDIS_HOST}:${REDIS_TEST_PORT}?db=2',
+}
+
+ENDREDIS
+        _printn "Attempting to start Redis..."
+        #TODO: Lift this into a script.
+        _which redis-server RS
+        $RS $TARGET/config/redis/redis-persistent.conf &>> $LOGFILE
+        RS1=$?
+        $RS $TARGET/config/redis/redis-volatile.conf &>> $LOGFILE
+        RS2=$?
+        $RS $TARGET/config/redis/redis-test.conf &>> $LOGFILE
+        RS3=$?
+        if [ 0 -eq $RS1 ] && [ 0 -eq $RS2 ] && [ 0 -eq $RS3 ]; then
+            _ok
+        else
+            _fail
+            _print "Could not start Redis. Please refer to the docs."
+        fi
+    else
+        _print "Please read the docs to set up Redis."
+    fi
+fi
 
 # Get the localizations if all the infrastructure is there.
 _is_installed svn
 SVN=$?
 _is_installed msgfmt
 #TODO
-GETTEXT=1
+GETTEXT=$?
 if [[ 0 -eq $SVN ]] && [[ 0 -eq $GETTEXT ]]; then
     _print "\nLocalizations available!"
     _printn "Checking out localizations... "
@@ -300,3 +350,9 @@ if [[ 0 -eq $SVN ]] && [[ 0 -eq $GETTEXT ]]; then
 else
     _print "\nLocalizations not available."
 fi
+
+# Update product_details.
+# TODO: Mock this in tests so it isn't necessary.
+_printn "Pulling Firefox version data..."
+_which python PYTHON
+$PYTHON $TARGET/manage.py update_product_details
